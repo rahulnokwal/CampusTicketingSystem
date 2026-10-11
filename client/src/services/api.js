@@ -22,9 +22,14 @@ export const setAccessToken = (token) => {
 export const getAccessToken = () => currentAccessToken;
 
 const getBaseUrl = () => {
-  const envUrl = import.meta.env.VITE_API_URL;
-  if (envUrl) {
-    return envUrl.endsWith("/api") ? envUrl : `${envUrl}/api`;
+  const envUrl =
+    import.meta.env.VITE_API_URL ||
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.API_Base_URL;
+
+  if (envUrl && typeof envUrl === "string" && envUrl.trim()) {
+    const trimmed = envUrl.trim().replace(/\/+$/, "");
+    return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
   }
   return "/api";
 };

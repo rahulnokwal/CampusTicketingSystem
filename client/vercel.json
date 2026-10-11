@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": ""
+      "destination": "https://campus-ticketing-system.vercel.app/api/:path*"
     },
     {
       "source": "/(.*)",

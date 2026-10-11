@@ -95,50 +95,6 @@ export const Login = () => {
               </Button>
             </form>
 
-            <div className="mt-6 pt-6 border-t border-surface-border">
-              <p className="text-xs font-semibold text-ink-subtle uppercase tracking-wider mb-2 text-center">
-                Quick Demo Fill
-              </p>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleDemoFill("student@campus.edu", "password123")
-                  }
-                  className="px-2.5 py-1.5 rounded-lg bg-surface-subtle hover:bg-canvas text-ink-muted hover:text-ink border border-surface-border text-center transition-all cursor-pointer font-medium"
-                >
-                  Student Demo
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleDemoFill("club@campus.edu", "password123")
-                  }
-                  className="px-2.5 py-1.5 rounded-lg bg-surface-subtle hover:bg-canvas text-brand hover:text-brand-dark border border-surface-border text-center transition-all cursor-pointer font-medium"
-                >
-                  Club Admin Demo
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleDemoFill("volunteer@campus.edu", "password123")
-                  }
-                  className="px-2.5 py-1.5 rounded-lg bg-surface-subtle hover:bg-canvas text-accent hover:text-accent border border-surface-border text-center transition-all cursor-pointer font-medium"
-                >
-                  Volunteer Demo
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleDemoFill("admin@campus.edu", "password123")
-                  }
-                  className="px-2.5 py-1.5 rounded-lg bg-surface-subtle hover:bg-canvas text-ink hover:text-ink border border-surface-border text-center transition-all cursor-pointer font-semibold"
-                >
-                  Super Admin
-                </button>
-              </div>
-            </div>
-
             <p className="text-center text-xs text-ink-muted mt-6">
               Don't have an account yet?{" "}
               <Link
