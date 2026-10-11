@@ -47,7 +47,7 @@ export const EventDetail = () => {
   const [heldSeatId, setHeldSeatId] = useState(null);
   const [holdExpiry, setHoldExpiry] = useState(null);
   const [holdCountdown, setHoldCountdown] = useState(null);
-
+  const [checkoutStep, setCheckoutStep] = useState("summary");
   const timerRef = useRef(null);
 
   useEffect(() => {
