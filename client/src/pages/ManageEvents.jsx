@@ -6,6 +6,8 @@ import { Card, CardBody } from "../components/ui/Card";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { PayoutModal } from "../components/PayoutModal";
+import { SeatConfigModal } from "../components/SeatConfigModal";
+import { VolunteerModal } from "../components/VolunteerModal";
 import {
   CalendarPlus,
   Calendar,
@@ -27,23 +29,27 @@ import {
   Clock,
   CheckCircle2,
   Building,
+  Armchair,
+  UserCheck,
 } from "lucide-react";
 
 export const ManageEvents = () => {
-  const [activeTab, setActiveTab] = useState("events"); // 'events' | 'finance'
+  const [activeTab, setActiveTab] = useState("events");
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [exportingId, setExportingId] = useState(null);
 
-  // Sentiment Modal State
   const [sentimentModalEvent, setSentimentModalEvent] = useState(null);
   const [sentimentReport, setSentimentReport] = useState(null);
   const [loadingReport, setLoadingReport] = useState(false);
 
-  // Financial Ledger State
   const [financialData, setFinancialData] = useState(null);
   const [loadingFinance, setLoadingFinance] = useState(false);
   const [showPayoutModal, setShowPayoutModal] = useState(false);
+
+  const [seatConfigModalEvent, setSeatConfigModalEvent] = useState(null);
+
+  const [volunteerModalEvent, setVolunteerModalEvent] = useState(null);
 
   const toast = useToast();
 
@@ -79,6 +85,31 @@ export const ManageEvents = () => {
     fetchClubEvents();
     fetchFinancialSummary();
   }, []);
+
+  const handleMarkCompleted = async (event) => {
+    if (
+      !window.confirm(
+        `Mark "${event.title}" as COMPLETED? This will close all ticket registrations and expire volunteer scanner access.`,
+      )
+    )
+      return;
+
+    try {
+      const res = await api.put(`/events/${event._id}`, {
+        status: "COMPLETED",
+      });
+      if (res.data?.success) {
+        toast.success(
+          `"${event.title}" completed! Volunteer scanner access expired.`,
+        );
+        fetchClubEvents();
+      }
+    } catch (err) {
+      toast.error(
+        err.response?.data?.message || "Failed to update event status",
+      );
+    }
+  };
 
   const handleDeleteEvent = async (id, title) => {
     if (!window.confirm(`Are you sure you want to delete "${title}"?`)) return;
@@ -306,6 +337,41 @@ export const ManageEvents = () => {
                             onClick={() => handleExportCSV(event)}
                           >
                             CSV
+                          </Button>
+
+                          {event.status !== "COMPLETED" && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="text-xs text-brand hover:bg-brand-subtle"
+                              title="Mark event completed & expire volunteer scanner access"
+                              icon={CheckCircle2}
+                              onClick={() => handleMarkCompleted(event)}
+                            >
+                              Complete
+                            </Button>
+                          )}
+
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="text-xs"
+                            title="Assign & manage event volunteers"
+                            icon={UserCheck}
+                            onClick={() => setVolunteerModalEvent(event)}
+                          >
+                            Volunteers
+                          </Button>
+
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="text-xs"
+                            title="Configure auditorium layout & manual seat pricing"
+                            icon={Armchair}
+                            onClick={() => setSeatConfigModalEvent(event)}
+                          >
+                            Seating
                           </Button>
 
                           <Button
@@ -740,6 +806,26 @@ export const ManageEvents = () => {
           events={financialData?.eventBreakdown || []}
           onClose={() => setShowPayoutModal(false)}
           onSuccess={() => fetchFinancialSummary()}
+        />
+      )}
+
+      {seatConfigModalEvent && (
+        <SeatConfigModal
+          event={seatConfigModalEvent}
+          onClose={() => setSeatConfigModalEvent(null)}
+          onUpdated={() => {
+            fetchClubEvents();
+          }}
+        />
+      )}
+
+      {volunteerModalEvent && (
+        <VolunteerModal
+          event={volunteerModalEvent}
+          onClose={() => setVolunteerModalEvent(null)}
+          onUpdated={() => {
+            fetchClubEvents();
+          }}
         />
       )}
     </div>

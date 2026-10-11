@@ -1,11 +1,12 @@
-import jwt from 'jsonwebtoken';
-import { Registration } from '../models/Registration.js';
-import { CheckIn } from '../models/CheckIn.js';
-import { Event } from '../models/Event.js';
-import { User } from '../models/User.js';
+import jwt from "jsonwebtoken";
+import { Registration } from "../models/Registration.js";
+import { CheckIn } from "../models/CheckIn.js";
+import { Event } from "../models/Event.js";
+import { User } from "../models/User.js";
 
 const QR_SECRET =
-  process.env.JWT_QR_SECRET || 'campus_life_qr_payload_secret_key_tamper_proof_32_bytes';
+  process.env.JWT_QR_SECRET ||
+  "campus_life_qr_payload_secret_key_tamper_proof_32_bytes";
 
 export const verifyAndCheckInTicket = async (req, res) => {
   const { qrPayload, eventId } = req.body;
@@ -14,8 +15,8 @@ export const verifyAndCheckInTicket = async (req, res) => {
   if (!qrPayload) {
     return res.status(400).json({
       success: false,
-      result: 'INVALID',
-      message: 'No QR payload provided',
+      result: "INVALID",
+      message: "No QR payload provided",
     });
   }
 
@@ -27,20 +28,60 @@ export const verifyAndCheckInTicket = async (req, res) => {
       registration: null,
       event: eventId || null,
       scannedBy: volunteerId,
-      ticketCode: 'TAMPERED_OR_EXPIRED',
-      result: 'INVALID',
+      ticketCode: "TAMPERED_OR_EXPIRED",
+      result: "INVALID",
       notes: `JWT Verification Failed: ${jwtErr.message}`,
     }).catch(() => {});
 
     return res.status(400).json({
       success: false,
-      result: 'INVALID',
-      message: 'Tampered or expired QR ticket. Verification failed.',
+      result: "INVALID",
+      message: "Tampered or expired QR ticket. Verification failed.",
     });
   }
 
   const { ticketCode, eventId: payloadEventId, studentId } = decoded;
 
+  const activeEvent = await Event.findById(payloadEventId);
+  if (!activeEvent) {
+    return res.status(404).json({
+      success: false,
+      result: "INVALID",
+      message: "Event not found in campus system",
+    });
+  }
+
+  if (
+    activeEvent.status === "COMPLETED" ||
+    activeEvent.status === "CANCELLED"
+  ) {
+    return res.status(400).json({
+      success: false,
+      result: "INVALID",
+      message: `Event is ${activeEvent.status.toLowerCase()}. Volunteer scanning access has expired for this event.`,
+    });
+  }
+
+  if (req.user.role === "volunteer") {
+    const isAssigned =
+      activeEvent.volunteers &&
+      activeEvent.volunteers.some(
+        (v) => v.toString() === volunteerId.toString(),
+      );
+
+    if (
+      activeEvent.volunteers &&
+      activeEvent.volunteers.length > 0 &&
+      !isAssigned
+    ) {
+      return res.status(403).json({
+        success: false,
+        result: "UNAUTHORIZED",
+        message:
+          "You are not assigned as a verified volunteer for this specific event.",
+      });
+    }
+  }
 
   if (eventId && eventId !== payloadEventId) {
     await CheckIn.create({
@@ -48,21 +89,20 @@ export const verifyAndCheckInTicket = async (req, res) => {
       event: eventId,
       scannedBy: volunteerId,
       ticketCode,
-      result: 'WRONG_EVENT',
+      result: "WRONG_EVENT",
       notes: `Expected event ${eventId}, but ticket is for ${payloadEventId}`,
     }).catch(() => {});
 
     return res.status(400).json({
       success: false,
-      result: 'WRONG_EVENT',
-      message: 'Ticket is valid, but issued for a different event!',
+      result: "WRONG_EVENT",
+      message: "Ticket is valid, but issued for a different event!",
     });
   }
 
-
   const registration = await Registration.findOne({ ticketCode })
-    .populate('student', 'name email role')
-    .populate('event', 'title venue date club');
+    .populate("student", "name email role")
+    .populate("event", "title venue date club");
 
   if (!registration) {
     await CheckIn.create({
@@ -70,33 +110,32 @@ export const verifyAndCheckInTicket = async (req, res) => {
       event: payloadEventId,
       scannedBy: volunteerId,
       ticketCode,
-      result: 'INVALID',
-      notes: 'Registration record not found in database',
+      result: "INVALID",
+      notes: "Registration record not found in database",
     }).catch(() => {});
 
     return res.status(404).json({
       success: false,
-      result: 'INVALID',
-      message: 'Ticket record not found in campus system.',
+      result: "INVALID",
+      message: "Ticket record not found in campus system.",
     });
   }
 
-
-  if (registration.status === 'CHECKED_IN') {
+  if (registration.status === "CHECKED_IN") {
     await CheckIn.create({
       registration: registration._id,
       event: registration.event._id,
       scannedBy: volunteerId,
       ticketCode,
-      result: 'ALREADY_USED',
+      result: "ALREADY_USED",
       notes: `Already checked in at ${registration.checkedInAt}`,
     }).catch(() => {});
 
     return res.status(409).json({
       success: false,
-      result: 'ALREADY_USED',
+      result: "ALREADY_USED",
       message: `TICKET ALREADY USED! Checked in on ${new Date(
-        registration.checkedInAt
+        registration.checkedInAt,
       ).toLocaleTimeString()}`,
       checkedInAt: registration.checkedInAt,
       student: registration.student,
@@ -104,42 +143,40 @@ export const verifyAndCheckInTicket = async (req, res) => {
     });
   }
 
-
   const updatedRegistration = await Registration.findOneAndUpdate(
-    { _id: registration._id, status: 'BOOKED' },
+    { _id: registration._id, status: "BOOKED" },
     {
       $set: {
-        status: 'CHECKED_IN',
+        status: "CHECKED_IN",
         checkedInAt: new Date(),
       },
     },
-    { new: true }
+    { new: true },
   )
-    .populate('student', 'name email role')
-    .populate('event', 'title venue date club');
+    .populate("student", "name email role")
+    .populate("event", "title venue date club");
 
   if (!updatedRegistration) {
     return res.status(409).json({
       success: false,
-      result: 'ALREADY_USED',
-      message: 'Concurrent check-in detected. Ticket was just used.',
+      result: "ALREADY_USED",
+      message: "Concurrent check-in detected. Ticket was just used.",
     });
   }
-
 
   await CheckIn.create({
     registration: updatedRegistration._id,
     event: updatedRegistration.event._id,
     scannedBy: volunteerId,
     ticketCode,
-    result: 'VALID',
-    notes: 'Access granted by volunteer scanner',
+    result: "VALID",
+    notes: "Access granted by volunteer scanner",
   });
 
   return res.status(200).json({
     success: true,
-    result: 'VALID',
-    message: 'ENTRY GRANTED! Valid admission pass verified.',
+    result: "VALID",
+    message: "ENTRY GRANTED! Valid admission pass verified.",
     attendee: {
       ticketCode: updatedRegistration.ticketCode,
       seatLabel: updatedRegistration.seatLabel || null,
@@ -159,23 +196,23 @@ export const getAttendeeManifest = async (req, res) => {
     if (!event) {
       return res.status(404).json({
         success: false,
-        message: 'Event not found',
+        message: "Event not found",
       });
     }
 
     const registrations = await Registration.find({
       event: eventId,
-      status: { $in: ['BOOKED', 'CHECKED_IN'] },
+      status: { $in: ["BOOKED", "CHECKED_IN"] },
     })
-      .populate('student', 'name email')
+      .populate("student", "name email")
       .lean();
 
     const manifest = registrations.map((reg) => ({
       ticketCode: reg.ticketCode,
       qrPayload: reg.qrPayload,
-      studentName: reg.student?.name || 'Student Attendee',
-      studentEmail: reg.student?.email || '',
-      seatLabel: reg.seatLabel || '',
+      studentName: reg.student?.name || "Student Attendee",
+      studentEmail: reg.student?.email || "",
+      seatLabel: reg.seatLabel || "",
       status: reg.status,
       checkedInAt: reg.checkedInAt || null,
     }));
@@ -193,10 +230,10 @@ export const getAttendeeManifest = async (req, res) => {
       downloadedAt: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('[Manifest Error]', error);
+    console.error("[Manifest Error]", error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to generate offline manifest',
+      message: "Failed to generate offline manifest",
     });
   }
 };
@@ -209,7 +246,7 @@ export const syncOfflineCheckIns = async (req, res) => {
     if (!Array.isArray(scans) || scans.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'No offline scans provided to sync',
+        message: "No offline scans provided to sync",
       });
     }
 
@@ -219,26 +256,29 @@ export const syncOfflineCheckIns = async (req, res) => {
     for (const scan of scans) {
       const { ticketCode, scannedAt } = scan;
 
-      const registration = await Registration.findOne({ ticketCode, event: eventId });
+      const registration = await Registration.findOne({
+        ticketCode,
+        event: eventId,
+      });
       if (!registration) {
-        results.push({ ticketCode, status: 'NOT_FOUND' });
+        results.push({ ticketCode, status: "NOT_FOUND" });
         continue;
       }
 
-      if (registration.status === 'CHECKED_IN') {
-        results.push({ ticketCode, status: 'ALREADY_CHECKED_IN' });
+      if (registration.status === "CHECKED_IN") {
+        results.push({ ticketCode, status: "ALREADY_CHECKED_IN" });
         continue;
       }
 
       const updated = await Registration.findOneAndUpdate(
-        { _id: registration._id, status: 'BOOKED' },
+        { _id: registration._id, status: "BOOKED" },
         {
           $set: {
-            status: 'CHECKED_IN',
+            status: "CHECKED_IN",
             checkedInAt: scannedAt ? new Date(scannedAt) : new Date(),
           },
         },
-        { new: true }
+        { new: true },
       );
 
       if (updated) {
@@ -247,13 +287,13 @@ export const syncOfflineCheckIns = async (req, res) => {
           event: eventId,
           scannedBy: volunteerId,
           ticketCode,
-          result: 'VALID',
-          notes: 'Processed via offline sync queue',
+          result: "VALID",
+          notes: "Processed via offline sync queue",
         });
         syncedCount++;
-        results.push({ ticketCode, status: 'SYNCED' });
+        results.push({ ticketCode, status: "SYNCED" });
       } else {
-        results.push({ ticketCode, status: 'CONFLICT' });
+        results.push({ ticketCode, status: "CONFLICT" });
       }
     }
 
@@ -264,10 +304,10 @@ export const syncOfflineCheckIns = async (req, res) => {
       results,
     });
   } catch (error) {
-    console.error('[Sync Offline Scans Error]', error);
+    console.error("[Sync Offline Scans Error]", error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to synchronize offline scans',
+      message: "Failed to synchronize offline scans",
     });
   }
 };
@@ -281,8 +321,8 @@ export const getCheckInHistory = async (req, res) => {
     const checkIns = await CheckIn.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
-      .populate('scannedBy', 'name email')
-      .populate('event', 'title');
+      .populate("scannedBy", "name email")
+      .populate("event", "title");
 
     return res.status(200).json({
       success: true,
@@ -292,7 +332,7 @@ export const getCheckInHistory = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to retrieve check-in audit logs',
+      message: "Failed to retrieve check-in audit logs",
     });
   }
 };

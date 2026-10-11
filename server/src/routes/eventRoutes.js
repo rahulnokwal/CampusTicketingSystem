@@ -9,6 +9,8 @@ import {
   uploadBannerImage,
   generateDescription,
   exportEventAttendeesCSV,
+  assignVolunteerToEvent,
+  removeVolunteerFromEvent,
 } from "../controllers/eventController.js";
 import { authenticate, authorize } from "../middlewares/authMiddleware.js";
 import { uploadBanner } from "../middlewares/uploadMiddleware.js";
@@ -66,6 +68,20 @@ router.get(
   authenticate,
   authorize("club_admin", "super_admin", "volunteer"),
   exportEventAttendeesCSV,
+);
+
+router.post(
+  "/:id/volunteers",
+  authenticate,
+  authorize("club_admin", "super_admin"),
+  assignVolunteerToEvent,
+);
+
+router.delete(
+  "/:id/volunteers/:volunteerId",
+  authenticate,
+  authorize("club_admin", "super_admin"),
+  removeVolunteerFromEvent,
 );
 
 export default router;

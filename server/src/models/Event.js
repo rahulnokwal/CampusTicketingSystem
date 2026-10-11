@@ -61,6 +61,24 @@ const eventSchema = new mongoose.Schema(
       type: String,
       default: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&auto=format&fit=crop&q=80',
     },
+    requiresSeatSelection: {
+      type: Boolean,
+      default: false,
+    },
+    seatingConfiguration: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    registrationDeadline: {
+      type: Date,
+      default: null,
+    },
+    volunteers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
   },
   {
     timestamps: true,

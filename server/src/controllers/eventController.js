@@ -1,6 +1,7 @@
 import { Event } from "../models/Event.js";
 import { Registration } from "../models/Registration.js";
 import { Seat } from "../models/Seat.js";
+import { User } from "../models/User.js";
 import { generateEventDescription } from "../services/aiService.js";
 
 export const getEvents = async (req, res) => {
@@ -100,6 +101,10 @@ export const createEvent = async (req, res) => {
       club,
       banner,
       status = "PUBLISHED",
+      requiresSeatSelection = false,
+      seatingConfiguration = null,
+      registrationDeadline = null,
+      volunteers = [],
     } = req.body;
 
     if (!title || !description || !venue || !date || !capacity) {
@@ -126,6 +131,12 @@ export const createEvent = async (req, res) => {
       banner:
         banner ||
         "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&auto=format&fit=crop&q=80",
+      requiresSeatSelection: Boolean(requiresSeatSelection),
+      seatingConfiguration: seatingConfiguration || null,
+      registrationDeadline: registrationDeadline
+        ? new Date(registrationDeadline)
+        : null,
+      volunteers: Array.isArray(volunteers) ? volunteers : [],
     });
 
     return res.status(201).json({
@@ -188,6 +199,22 @@ export const updateEvent = async (req, res) => {
           { $set: { tierPrice: balconyPrice } },
         ),
       ]);
+    }
+
+    if (req.body.status === "COMPLETED" && event.volunteers?.length > 0) {
+      for (const volId of event.volunteers) {
+        // Check if volunteer is assigned to any other upcoming PUBLISHED event
+        const otherActiveEvents = await Event.countDocuments({
+          _id: { $ne: event._id },
+          volunteers: volId,
+          status: "PUBLISHED",
+          date: { $gte: new Date() },
+        });
+
+        if (otherActiveEvents === 0) {
+          await User.findByIdAndUpdate(volId, { role: "student" });
+        }
+      }
     }
 
     return res.status(200).json({
@@ -379,6 +406,132 @@ export const exportEventAttendeesCSV = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to export attendee roster",
+    });
+  }
+};
+
+export const assignVolunteerToEvent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Volunteer email address is required",
+      });
+    }
+
+    const event = await Event.findById(id);
+    if (!event) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Event not found" });
+    }
+
+    if (
+      event.createdBy.toString() !== req.user.userId &&
+      req.user.role !== "super_admin"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to manage volunteers for this event",
+      });
+    }
+
+    const volunteerUser = await User.findOne({ email: email.toLowerCase() });
+    if (!volunteerUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found with this email",
+      });
+    }
+
+    if (volunteerUser.role === "student") {
+      volunteerUser.role = "volunteer";
+      await volunteerUser.save();
+    }
+
+    if (
+      !event.volunteers.some(
+        (v) => v.toString() === volunteerUser._id.toString(),
+      )
+    ) {
+      event.volunteers.push(volunteerUser._id);
+      await event.save();
+    }
+
+    const populatedEvent = await Event.findById(id).populate(
+      "volunteers",
+      "name email role",
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `${volunteerUser.name} assigned as scanner volunteer!`,
+      volunteers: populatedEvent.volunteers,
+    });
+  } catch (error) {
+    console.error("[Assign Volunteer Error]", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to assign volunteer",
+    });
+  }
+};
+
+export const removeVolunteerFromEvent = async (req, res) => {
+  try {
+    const { id, volunteerId } = req.params;
+
+    const event = await Event.findById(id);
+    if (!event) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Event not found" });
+    }
+
+    if (
+      event.createdBy.toString() !== req.user.userId &&
+      req.user.role !== "super_admin"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to manage volunteers for this event",
+      });
+    }
+
+    event.volunteers = event.volunteers.filter(
+      (v) => v.toString() !== volunteerId.toString(),
+    );
+    await event.save();
+
+    const otherActiveEvents = await Event.countDocuments({
+      _id: { $ne: event._id },
+      volunteers: volunteerId,
+      status: "PUBLISHED",
+      date: { $gte: new Date() },
+    });
+
+    if (otherActiveEvents === 0) {
+      await User.findByIdAndUpdate(volunteerId, { role: "student" });
+    }
+
+    const populatedEvent = await Event.findById(id).populate(
+      "volunteers",
+      "name email role",
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Volunteer removed from event and permissions revoked",
+      volunteers: populatedEvent.volunteers,
+    });
+  } catch (error) {
+    console.error("[Remove Volunteer Error]", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to remove volunteer",
     });
   }
 };

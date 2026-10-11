@@ -22,6 +22,7 @@ import {
   Clock,
   ChevronRight,
   Armchair,
+  HeartHandshake,
 } from "lucide-react";
 
 export const EventDetail = () => {
@@ -37,18 +38,18 @@ export const EventDetail = () => {
   const [confirmedTicket, setConfirmedTicket] = useState(null);
   const [razorpayReady, setRazorpayReady] = useState(false);
 
-  // Seat state
+  const [customAmountInput, setCustomAmountInput] = useState("");
+  const [enableCustomAmount, setEnableCustomAmount] = useState(false);
+
   const [seats, setSeats] = useState([]);
   const [loadingSeats, setLoadingSeats] = useState(false);
   const [selectedSeat, setSelectedSeat] = useState(null);
   const [heldSeatId, setHeldSeatId] = useState(null);
   const [holdExpiry, setHoldExpiry] = useState(null);
   const [holdCountdown, setHoldCountdown] = useState(null);
-  const [checkoutStep, setCheckoutStep] = useState("summary"); // 'seats' | 'summary'
 
   const timerRef = useRef(null);
 
-  // Countdown timer for seat hold
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (!holdExpiry) {
@@ -79,7 +80,6 @@ export const EventDetail = () => {
     };
   }, [holdExpiry, id]);
 
-  // Dynamically load Razorpay SDK
   useEffect(() => {
     if (window.Razorpay) {
       setRazorpayReady(true);
@@ -141,9 +141,11 @@ export const EventDetail = () => {
     }
 
     setShowCheckoutModal(true);
-    if (event) {
+    if (event?.requiresSeatSelection) {
       setCheckoutStep("seats");
       await fetchSeats(event._id);
+    } else {
+      setCheckoutStep("summary");
     }
   };
 
@@ -152,9 +154,7 @@ export const EventDetail = () => {
       if (heldSeatId) {
         try {
           await api.post(`/seats/release/${heldSeatId}`);
-        } catch (e) {
-          // ignore
-        }
+        } catch (e) {}
       }
       setSelectedSeat(null);
       setHeldSeatId(null);
@@ -181,14 +181,31 @@ export const EventDetail = () => {
     }
   };
 
+  const basePrice =
+    selectedSeat && typeof selectedSeat.tierPrice === "number"
+      ? selectedSeat.tierPrice
+      : event?.price || 0;
+
+  const customNum = Number(customAmountInput);
+  const activePaymentAmount =
+    enableCustomAmount && !isNaN(customNum) && customNum >= basePrice
+      ? customNum
+      : basePrice;
+
   const handleLaunchRazorpayGateway = async () => {
     try {
       setCheckoutLoading(true);
 
-      const orderRes = await api.post("/payments/order", {
+      const orderPayload = {
         eventId: event._id,
         seatId: selectedSeat?._id,
-      });
+      };
+
+      if (enableCustomAmount && !isNaN(customNum) && customNum >= basePrice) {
+        orderPayload.customAmount = customNum;
+      }
+
+      const orderRes = await api.post("/payments/order", orderPayload);
       const order = orderRes.data?.order;
 
       if (!order) {
@@ -217,6 +234,7 @@ export const EventDetail = () => {
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
+                customAmount: order.amount,
               });
 
               if (verifyRes.data?.success) {
@@ -250,13 +268,13 @@ export const EventDetail = () => {
         return;
       }
 
-      // Sandbox Verification Flow
       const verifyRes = await api.post("/payments/verify", {
         eventId: event._id,
         seatId: selectedSeat?._id,
         razorpay_order_id: order.gatewayOrderId,
         razorpay_payment_id: `pay_test_${Date.now()}_simulated`,
         razorpay_signature: "test_sandbox_signature",
+        customAmount: order.amount,
       });
 
       if (verifyRes.data?.success) {
@@ -274,6 +292,11 @@ export const EventDetail = () => {
   };
 
   const handleFreeRegistration = async () => {
+    if (enableCustomAmount && customNum > 0) {
+      await handleLaunchRazorpayGateway();
+      return;
+    }
+
     try {
       setCheckoutLoading(true);
       const regRes = await api.post("/registrations", {
@@ -302,6 +325,8 @@ export const EventDetail = () => {
     setSelectedSeat(null);
     setHeldSeatId(null);
     setHoldExpiry(null);
+    setEnableCustomAmount(false);
+    setCustomAmountInput("");
     setCheckoutStep("summary");
   };
 
@@ -337,6 +362,12 @@ export const EventDetail = () => {
   }
 
   const isSoldOut = event.registeredCount >= event.capacity;
+  const isCompleted = event.status === "COMPLETED";
+  const isDeadlinePassed =
+    event.registrationDeadline &&
+    new Date() > new Date(event.registrationDeadline);
+  const isRegistrationClosed = isSoldOut || isCompleted || isDeadlinePassed;
+
   const eventDate = new Date(event.date).toLocaleString("en-US", {
     weekday: "long",
     month: "long",
@@ -346,10 +377,14 @@ export const EventDetail = () => {
     minute: "2-digit",
   });
 
-  const payablePrice =
-    selectedSeat && typeof selectedSeat.tierPrice === "number"
-      ? selectedSeat.tierPrice
-      : event.price;
+  const deadlineFormatted = event.registrationDeadline
+    ? new Date(event.registrationDeadline).toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 animate-fade-in pb-12 text-ink">
@@ -372,10 +407,19 @@ export const EventDetail = () => {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Badge variant="brand">{event.category}</Badge>
-              {isSoldOut ? (
+              {isCompleted ? (
+                <Badge variant="warning">Event Completed</Badge>
+              ) : isDeadlinePassed ? (
+                <Badge variant="danger">Registration Closed</Badge>
+              ) : isSoldOut ? (
                 <Badge variant="danger">Sold Out</Badge>
               ) : (
                 <Badge variant="success">Seats Available</Badge>
+              )}
+              {event.requiresSeatSelection ? (
+                <Badge variant="accent">Reserved Seating</Badge>
+              ) : (
+                <Badge variant="secondary">General Admission</Badge>
               )}
             </div>
             <h1 className="text-2xl sm:text-4xl font-extrabold text-surface leading-tight">
@@ -474,18 +518,39 @@ export const EventDetail = () => {
               </div>
 
               <div className="space-y-3">
+                {deadlineFormatted && !isCompleted && (
+                  <div
+                    className={`p-2.5 rounded-lg border text-xs flex items-center justify-between ${
+                      isDeadlinePassed
+                        ? "bg-danger-bg border-danger-border text-danger"
+                        : "bg-surface-subtle border-surface-border text-ink-muted"
+                    }`}
+                  >
+                    <span>Registration Cutoff:</span>
+                    <span className="font-bold text-ink">
+                      {deadlineFormatted}
+                    </span>
+                  </div>
+                )}
+
                 <Button
                   variant="primary"
                   size="lg"
                   className="w-full"
-                  disabled={isSoldOut}
+                  disabled={isRegistrationClosed}
                   onClick={handleRegisterClick}
                 >
-                  {isSoldOut
-                    ? "Event Sold Out"
-                    : event.price === 0
-                      ? "Select Seat / Register"
-                      : `Book Seat (from ₹${event.price})`}
+                  {isCompleted
+                    ? "Event Completed"
+                    : isDeadlinePassed
+                      ? "Registration Expired"
+                      : isSoldOut
+                        ? "Event Sold Out"
+                        : event.requiresSeatSelection
+                          ? "Select Seat & Register"
+                          : event.price === 0
+                            ? "Claim Free Pass"
+                            : `Book Pass (from ₹${event.price})`}
                 </Button>
 
                 <div className="flex items-center justify-center gap-2 text-xs text-ink-subtle">
@@ -511,8 +576,12 @@ export const EventDetail = () => {
                   </h3>
                   <p className="text-xs text-ink-muted mt-1">{event.title}</p>
                 </div>
-                <Badge variant={payablePrice === 0 ? "success" : "accent"}>
-                  {payablePrice === 0 ? "Free" : `₹${payablePrice}`}
+                <Badge
+                  variant={activePaymentAmount === 0 ? "success" : "accent"}
+                >
+                  {activePaymentAmount === 0
+                    ? "Free"
+                    : `₹${activePaymentAmount}`}
                 </Badge>
               </div>
 
@@ -528,7 +597,8 @@ export const EventDetail = () => {
                       </div>
                       {selectedSeat && (
                         <span className="text-ink">
-                          Seat #{selectedSeat.seatLabel}
+                          Seat #{selectedSeat.seatLabel} ({selectedSeat.section}{" "}
+                          - ₹{selectedSeat.tierPrice})
                         </span>
                       )}
                     </div>
@@ -587,6 +657,14 @@ export const EventDetail = () => {
                         {event.venue}
                       </span>
                     </div>
+                    <div className="flex justify-between">
+                      <span className="text-ink-muted">Admission Type:</span>
+                      <span className="text-ink font-semibold">
+                        {event.requiresSeatSelection
+                          ? "Assigned Seat"
+                          : "General Admission"}
+                      </span>
+                    </div>
                     {selectedSeat && (
                       <div className="flex justify-between items-center bg-surface p-2 rounded-lg border border-surface-border">
                         <span className="text-ink-muted flex items-center gap-1.5 font-semibold">
@@ -594,21 +672,90 @@ export const EventDetail = () => {
                           Reserved Seat:
                         </span>
                         <span className="font-bold text-accent">
-                          {selectedSeat.seatLabel} ({selectedSeat.section})
+                          {selectedSeat.seatLabel} ({selectedSeat.section}) — ₹
+                          {selectedSeat.tierPrice}
                         </span>
                       </div>
                     )}
                     <div className="flex justify-between pt-2 border-t border-surface-border">
                       <span className="text-ink-muted font-semibold">
-                        Total Amount:
+                        Base Price:
                       </span>
-                      <span className="font-extrabold text-base text-ink">
-                        {payablePrice === 0 ? "₹0.00" : `₹${payablePrice}.00`}
+                      <span className="font-bold text-sm text-ink">
+                        {basePrice === 0 ? "₹0.00 (Free)" : `₹${basePrice}.00`}
                       </span>
                     </div>
                   </div>
 
-                  {payablePrice > 0 ? (
+                  <div className="p-4 rounded-xl bg-surface-subtle border border-surface-border space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <HeartHandshake className="w-4 h-4 text-brand" />
+                        <div>
+                          <p className="text-xs font-bold text-ink">
+                            Custom Contribution / Pay-What-You-Want
+                          </p>
+                          <p className="text-[11px] text-ink-muted">
+                            Support the student club or event with a higher
+                            custom payment (min: ₹{basePrice})
+                          </p>
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={enableCustomAmount}
+                          onChange={(e) => {
+                            setEnableCustomAmount(e.target.checked);
+                            if (e.target.checked && !customAmountInput) {
+                              setCustomAmountInput(
+                                basePrice > 0 ? basePrice.toString() : "50",
+                              );
+                            }
+                          }}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-canvas border border-surface-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                      </label>
+                    </div>
+
+                    {enableCustomAmount && (
+                      <div className="pt-2 border-t border-surface-border flex items-center gap-3">
+                        <span className="text-xs font-bold text-ink">
+                          Enter Amount: ₹
+                        </span>
+                        <input
+                          type="number"
+                          min={basePrice}
+                          value={customAmountInput}
+                          onChange={(e) => setCustomAmountInput(e.target.value)}
+                          placeholder={`Min ₹${basePrice}`}
+                          className="w-32 bg-surface text-ink font-bold text-sm px-3 py-1.5 rounded-lg border border-surface-border focus:border-brand outline-none"
+                        />
+                        {customNum < basePrice && (
+                          <span className="text-[11px] text-danger font-medium">
+                            Must be ≥ ₹{basePrice}
+                          </span>
+                        )}
+                        {customNum >= basePrice && (
+                          <span className="text-[11px] text-success font-medium">
+                            Valid custom amount
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-between items-center bg-surface p-3.5 rounded-xl border border-surface-border">
+                    <span className="text-xs font-bold text-ink uppercase tracking-wider">
+                      Total Payable:
+                    </span>
+                    <span className="font-extrabold text-xl text-ink">
+                      ₹{activePaymentAmount.toFixed(2)}
+                    </span>
+                  </div>
+
+                  {activePaymentAmount > 0 ? (
                     <div className="space-y-3">
                       <div className="p-3 bg-brand-subtle border border-brand/30 rounded-xl text-xs space-y-1">
                         <div className="flex items-center gap-2 font-semibold text-brand">
@@ -639,7 +786,7 @@ export const EventDetail = () => {
                   )}
 
                   <div className="flex gap-3 pt-2">
-                    {seats.length > 0 ? (
+                    {event.requiresSeatSelection && seats.length > 0 ? (
                       <Button
                         variant="secondary"
                         className="flex-1"
@@ -657,24 +804,25 @@ export const EventDetail = () => {
                       </Button>
                     )}
 
-                    {payablePrice === 0 ? (
+                    {activePaymentAmount === 0 ? (
                       <Button
                         variant="primary"
                         className="flex-1"
                         loading={checkoutLoading}
                         onClick={handleFreeRegistration}
                       >
-                        Confirm Pass
+                        Confirm Free Pass
                       </Button>
                     ) : (
                       <Button
                         variant="primary"
                         className="flex-1"
+                        disabled={enableCustomAmount && customNum < basePrice}
                         loading={checkoutLoading}
                         onClick={handleLaunchRazorpayGateway}
                         icon={Wallet}
                       >
-                        Pay & Issue Pass
+                        Pay ₹{activePaymentAmount} & Issue Pass
                       </Button>
                     )}
                   </div>

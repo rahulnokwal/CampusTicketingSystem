@@ -37,6 +37,31 @@ export const registerForEvent = async (req, res) => {
       });
     }
 
+    const targetEvent = await Event.findById(eventId);
+    if (!targetEvent) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found",
+      });
+    }
+
+    if (targetEvent.status !== "PUBLISHED") {
+      return res.status(400).json({
+        success: false,
+        message: "Registrations are currently closed for this event.",
+      });
+    }
+
+    if (
+      targetEvent.registrationDeadline &&
+      new Date() > new Date(targetEvent.registrationDeadline)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Registration deadline has expired for this event.",
+      });
+    }
+
     const event = await Event.findOneAndUpdate(
       {
         _id: eventId,

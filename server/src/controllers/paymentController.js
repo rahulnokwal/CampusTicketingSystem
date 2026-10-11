@@ -30,7 +30,7 @@ const getRazorpayInstance = () => {
 
 export const createPaymentOrder = async (req, res) => {
   try {
-    const { eventId, seatId } = req.body;
+    const { eventId, seatId, customAmount } = req.body;
     const studentId = req.user.userId;
 
     if (!eventId) {
@@ -45,6 +45,20 @@ export const createPaymentOrder = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Event not found",
+      });
+    }
+
+    if (event.status !== "PUBLISHED") {
+      return res.status(400).json({
+        success: false,
+        message: "Registrations are currently closed for this event",
+      });
+    }
+
+    if (event.registrationDeadline && new Date() > new Date(event.registrationDeadline)) {
+      return res.status(400).json({
+        success: false,
+        message: "Registration deadline has expired for this event",
       });
     }
 
@@ -68,21 +82,37 @@ export const createPaymentOrder = async (req, res) => {
       });
     }
 
-    let seatPrice = event.price;
+    let minPrice = event.price || 0;
     if (seatId) {
       const seat = await Seat.findOne({ _id: seatId, event: eventId });
       if (seat && typeof seat.tierPrice === "number") {
-        seatPrice = seat.tierPrice;
+        minPrice = seat.tierPrice;
       }
     }
 
-    const amountInPaise = Math.round(seatPrice * 100);
+    let finalAmount = minPrice;
+    if (
+      customAmount !== undefined &&
+      customAmount !== null &&
+      customAmount !== ""
+    ) {
+      const parsedCustom = Number(customAmount);
+      if (isNaN(parsedCustom) || parsedCustom < minPrice) {
+        return res.status(400).json({
+          success: false,
+          message: `Custom amount must be at least the base price of ₹${minPrice}`,
+        });
+      }
+      finalAmount = parsedCustom;
+    }
+
+    const amountInPaise = Math.round(finalAmount * 100);
     const receipt = `rcpt_${Date.now().toString(36)}_${studentId.toString().slice(-4)}`;
 
     const rzp = getRazorpayInstance();
     let gatewayOrderId;
 
-    if (rzp && seatPrice > 0) {
+    if (rzp && finalAmount > 0) {
       try {
         const rzpOrder = await rzp.orders.create({
           amount: amountInPaise,
@@ -93,6 +123,7 @@ export const createPaymentOrder = async (req, res) => {
             studentId: studentId.toString(),
             eventTitle: event.title,
             seatId: seatId ? seatId.toString() : "",
+            customAmount: finalAmount.toString(),
           },
         });
         gatewayOrderId = rzpOrder.id;
@@ -111,13 +142,14 @@ export const createPaymentOrder = async (req, res) => {
       success: true,
       order: {
         gatewayOrderId,
-        amount: seatPrice,
+        amount: finalAmount,
+        minAmount: minPrice,
         amountInPaise,
         currency: "INR",
         eventTitle: event.title,
         eventId: event._id,
         seatId: seatId || null,
-        isFree: seatPrice === 0,
+        isFree: finalAmount === 0,
         keyId: process.env.RAZORPAY_KEY_ID || "rzp_test_campuslife123",
       },
     });
@@ -138,6 +170,7 @@ export const verifyPaymentAndConfirmTicket = async (req, res) => {
       razorpay_payment_id,
       razorpay_signature,
       seatId,
+      customAmount,
     } = req.body;
 
     const studentId = req.user.userId;
@@ -291,10 +324,22 @@ export const verifyPaymentAndConfirmTicket = async (req, res) => {
       });
     }
 
-    const finalPaidAmount =
+    const minRequired =
       heldSeat && typeof heldSeat.tierPrice === "number"
         ? heldSeat.tierPrice
-        : event.price;
+        : event.price || 0;
+
+    let finalPaidAmount = minRequired;
+    if (
+      customAmount !== undefined &&
+      customAmount !== null &&
+      customAmount !== ""
+    ) {
+      const parsed = Number(customAmount);
+      if (!isNaN(parsed) && parsed >= minRequired) {
+        finalPaidAmount = parsed;
+      }
+    }
 
     let payment = await Payment.findOne({
       gatewayPaymentId: razorpay_payment_id,

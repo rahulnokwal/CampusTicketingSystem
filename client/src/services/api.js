@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios from "axios";
 
 let currentAccessToken = null;
 let isRefreshing = false;
@@ -21,15 +21,22 @@ export const setAccessToken = (token) => {
 
 export const getAccessToken = () => currentAccessToken;
 
+const getBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) {
+    return envUrl.endsWith("/api") ? envUrl : `${envUrl}/api`;
+  }
+  return "/api";
+};
+
 export const api = axios.create({
-  baseURL: '/api',
+  baseURL: getBaseUrl(),
   withCredentials: true,
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
 });
 
-// Request interceptor: attach bearer token if present
 api.interceptors.request.use(
   (config) => {
     if (currentAccessToken) {
@@ -37,22 +44,20 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => Promise.reject(error),
 );
 
-// Response interceptor: handle 401 and refresh token silently
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
 
-    // Avoid infinite loop on auth endpoints
     if (
       error.response?.status === 401 &&
       !originalRequest._retry &&
-      !originalRequest.url.includes('/auth/login') &&
-      !originalRequest.url.includes('/auth/register') &&
-      !originalRequest.url.includes('/auth/refresh')
+      !originalRequest.url.includes("/auth/login") &&
+      !originalRequest.url.includes("/auth/register") &&
+      !originalRequest.url.includes("/auth/refresh")
     ) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
@@ -67,12 +72,12 @@ api.interceptors.response.use(
 
       originalRequest._retry = true;
       isRefreshing = true;
-
       try {
+        const refreshUrl = `${getBaseUrl()}/auth/refresh`;
         const { data } = await axios.post(
-          '/api/auth/refresh',
+          refreshUrl,
           {},
-          { withCredentials: true }
+          { withCredentials: true },
         );
 
         const newAccessToken = data.accessToken;
@@ -91,6 +96,5 @@ api.interceptors.response.use(
     }
 
     return Promise.reject(error);
-  }
+  },
 );
-

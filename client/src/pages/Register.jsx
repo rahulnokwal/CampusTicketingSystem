@@ -5,7 +5,7 @@ import { useToast } from "../context/ToastContext";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody } from "../components/ui/Card";
-import { Mail, Lock, User, Building2, UserCheck } from "lucide-react";
+import { Mail, Lock, User, Building2, UserCheck, KeyRound } from "lucide-react";
 import { BrandLogo } from "../components/ui/BrandLogo";
 
 export const Register = () => {
@@ -15,6 +15,7 @@ export const Register = () => {
     password: "",
     role: "student",
     clubName: "",
+    inviteCode: "",
   });
   const [loading, setLoading] = useState(false);
   const { register } = useAuth();
@@ -132,6 +133,24 @@ export const Register = () => {
                   onChange={handleChange}
                   required
                 />
+              )}
+
+              {(formData.role === "volunteer" || formData.role === "club_admin") && (
+                <div className="space-y-1">
+                  <Input
+                    label={`${formData.role === "volunteer" ? "Volunteer" : "Club Admin"} Authorization Key`}
+                    name="inviteCode"
+                    type="password"
+                    placeholder="Enter official campus secret key"
+                    icon={KeyRound}
+                    value={formData.inviteCode}
+                    onChange={handleChange}
+                    required
+                  />
+                  <p className="text-[11px] text-ink-muted">
+                    Contact your institution coordinator to receive the {formData.role === "volunteer" ? "Volunteer" : "Club Admin"} passkey.
+                  </p>
+                </div>
               )}
 
               <Input

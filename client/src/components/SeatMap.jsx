@@ -1,18 +1,17 @@
 import React from "react";
 
-const SECTION_ORDER = ["VIP", "General", "Balcony"];
-
 export const SeatMap = ({
   seats = [],
   onSeatSelect,
   selectedSeatId,
   heldByMeId,
 }) => {
-  const sections = SECTION_ORDER.reduce((acc, sec) => {
-    const secSeats = seats.filter((s) => s.section === sec);
-    if (secSeats.length > 0) {
-      acc[sec] = secSeats;
+  const sections = seats.reduce((acc, seat) => {
+    const secName = seat.section || "General";
+    if (!acc[secName]) {
+      acc[secName] = [];
     }
+    acc[secName].push(seat);
     return acc;
   }, {});
 
